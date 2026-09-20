@@ -2,14 +2,17 @@ package com.kesham.pocketbrain
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -61,6 +64,12 @@ internal fun ChatRoute(
 ) {
     val context = LocalContext.current.applicationContext
     val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.getFactory(context))
+
+    val initError = chatViewModel.initError
+    if (initError != null) {
+        ChatErrorScreen(message = initError, onGoBack = onClose)
+        return
+    }
 
     // Reset InferenceModel when entering ChatScreen
     LaunchedEffect(Unit) {
@@ -393,6 +402,57 @@ fun ChatItem(
                     )
                 }
             }
+        }
+        chatMessage.tokensPerSecond?.let { tokensPerSecond ->
+            Text(
+                text = "%.1f tok/s".format(tokensPerSecond),
+                style = MaterialTheme.typography.labelSmall,
+                color = ClayTextSecondary,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatErrorScreen(
+    message: String,
+    onGoBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ClaySurface)
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Couldn't load the model",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = ClayTextPrimary,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = ClayTextSecondary,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        ClayBox(
+            modifier = Modifier.clickable(onClick = onGoBack),
+            shape = ClayPillShape,
+            color = ClayPrimary,
+            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp)
+        ) {
+            Text(
+                text = "Go Back",
+                style = MaterialTheme.typography.labelLarge,
+                color = ClayTextPrimary
+            )
         }
     }
 }

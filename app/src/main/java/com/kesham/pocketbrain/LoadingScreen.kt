@@ -91,6 +91,9 @@ internal fun LoadingRoute(
                 CoroutineScope(Dispatchers.Main).launch {
                     deleteDownloadedFile(context)
                 }
+            } catch (e: OutOfMemoryError) {
+                errorMessage = "Not enough memory to load this model on this device. Try closing " +
+                    "other apps, restarting your phone, or using a smaller model."
             } catch (e: Exception) {
                 val error = e.localizedMessage ?: "Unknown Error"
                 errorMessage =

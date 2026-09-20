@@ -1,70 +1,81 @@
-# MediaPipe LLM Inference Android Demo
+# PocketBrain
 
-### Overview
+PocketBrain is an offline, on-device LLM chat app for Android. It runs a
+quantized Gemma 3 model entirely on-device via
+[MediaPipe's LLM Inference API](https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference)
+(`com.google.mediapipe:tasks-genai`), using the phone's GPU when available and
+falling back to CPU automatically if GPU initialization fails.
 
-This is a sample app that demonstrates how to use the LLM Inference API to run common text-to-text generation tasks like information retrieval, email drafting, and document summarization.
+**Zero internet required at chat time.** Once the model file is on the
+device, prompts and responses never leave the phone — there's no network
+call, no API key, no cloud inference.
 
-This application must be run on a physical Android device to take advantage of the device GPU.
+> 📸 **Screenshot placeholder** — add a screenshot of the chat screen here,
+> e.g. `![PocketBrain screenshot](docs/screenshot.png)`.
 
-![LLM Inference Demo](llm_inference.png)
+## Setup
 
-## How to Build the Demo App
+### 1. Clone the repo
 
-### 1. Download the Code
-
-To download the demo code, clone the git repository using the following command:
-
+```bash
+git clone https://github.com/keshamyoulive-bit/pocket-brain.git
+cd pocket-brain
 ```
-git clone https://github.com/google-ai-edge/mediapipe-samples
+
+### 2. Download the model
+
+PocketBrain ships configured for **Gemma 3 1B IT (int4 quantized)**, a small
+model that runs comfortably on-device. It's a gated model on Hugging Face, so
+you'll need an account that has accepted Google's license:
+
+1. Log into [huggingface.co](https://huggingface.co) and visit
+   [litert-community/Gemma3-1B-IT](https://huggingface.co/litert-community/Gemma3-1B-IT).
+2. Click **"Acknowledge license"** to accept the
+   [Gemma license](https://ai.google.dev/gemma/terms) (usually approved
+   instantly).
+3. Generate a [read-scoped access token](https://huggingface.co/settings/tokens).
+4. Download the file:
+
+   ```bash
+   curl -L -H "Authorization: Bearer <YOUR_HF_TOKEN>" \
+     -o gemma3-1b-it-int4.task \
+     https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task
+   ```
+
+   (~530 MB — this file is gitignored, do not commit it.)
+
+### 3. Push the model to your device
+
+With a physical Android device connected over USB (developer mode + USB
+debugging enabled), either run the included script:
+
+```bash
+./push_model.sh gemma3-1b-it-int4.task
 ```
 
-After downloading the demo code, you can import the project into Android Studio and run the app with the following instructions.
+or do it manually with `adb`:
 
-### 2. Prerequisites
+```bash
+adb shell mkdir -p /data/local/tmp/llm/
+adb push gemma3-1b-it-int4.task /data/local/tmp/llm/
+```
 
-*   The **[Android Studio](https://developer.android.com/studio)**
-    IDE. This demo has been tested on Android Studio Hedgehog.
+### 4. Build and run
 
-*   A physical Android device with a minimum OS version of SDK 24 (Android 7.0 -
-    Nougat) with developer mode enabled.
+```bash
+./gradlew installDebug
+```
 
-### 3. Build and Run
+Or open the project in Android Studio and run the `app` module on your
+device. On first launch, select **GEMMA_3_1B_IT_GPU** (or the CPU variant) —
+since the file already exists on-device at the expected path, PocketBrain
+loads it directly instead of downloading.
 
-To import and build the demo app:
+## Notes
 
-1. Download [Android Studio](https://developer.android.com/studio) and install.
-
-2. From the Android Studio, select **File > New > Import Project**.
-
-3. Navigate to the demo app `android` directory and select that directory, for example: `.../mediapipe-samples/examples/llm_inference/android`
-
-4. If Android Studio requests a Gradle Sync, choose **OK**.
-
-5. Build the project by selecting **Build > Make Project**.
-
-   When the build completes, the Android Studio displays a `BUILD SUCCESSFUL` message in the Build Output status panel.
-
-To run the demo app:
-
-1. Ensure that your Android device is connected to your computer and developer mode is enabled.
-
-2. From Android Studio, run the app by selecting **Run > Run 'app'**.
-
-## How to Use the Demo App
-
-### 1. Select Model
-
-The user first selects a model (e.g. `DEEPSEEK_CPU` for the DeepSeek model) from the model selection screen.
-
-### 2. Download Model
-
-If the model has not been downloaded previously, the app will download it from [LiteRT on Hugging Face](https://huggingface.co/litert-community).
-
-If authentication and license acknowledgment are required to access the model, the user will be prompted to sign in with their Hugging Face account and acknowledge the license if necessary.
-
-### 3. Chat with Model
-
-Once the model is downloaded, the user can interact with it by entering prompts and receiving responses.
-
-## Reference
-For more details, see the [LLM Inference guide for Android](https://developers.google.com/mediapipe/solutions/genai/llm_inference/android).
+- Requires a physical Android device (SDK 24+) — the emulator doesn't expose
+  a usable GPU backend for the LLM Inference API.
+- If GPU initialization fails on your device, PocketBrain automatically
+  retries on CPU and shows which backend is active in the chat header.
+- Running a local LLM is GPU/CPU-intensive; expect the device to warm up
+  during longer conversations.

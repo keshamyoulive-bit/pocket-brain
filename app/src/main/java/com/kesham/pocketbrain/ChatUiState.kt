@@ -72,6 +72,14 @@ class UiState(
         return index
     }
 
+    /** Records the generation speed on the message currently being streamed. */
+    fun setGenerationStats(tokensPerSecond: Double) {
+        val index = _messages.indexOfFirst { it.id == _currentMessageId }
+        if (index != -1) {
+            _messages[index] = _messages[index].copy(tokensPerSecond = tokensPerSecond)
+        }
+    }
+
     /** Creates a new message with the specified text and author. */
     fun addMessage(text: String, author: String) {
         val chatMessage = ChatMessage(

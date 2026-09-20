@@ -11,6 +11,7 @@ data class ChatMessage(
     val author: String,
     val isLoading: Boolean = false,
     val isThinking: Boolean = false,
+    val tokensPerSecond: Double? = null,
 ) {
     val isEmpty: Boolean
         get() = rawMessage.trim().isEmpty()

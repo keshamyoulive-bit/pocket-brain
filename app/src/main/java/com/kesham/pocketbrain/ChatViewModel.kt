@@ -15,10 +15,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 
 class ChatViewModel(
-    private var inferenceModel: InferenceModel
+    private var inferenceModel: InferenceModel?,
+    val initError: String? = null
 ) : ViewModel() {
 
-    private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel.uiState)
+    private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel?.uiState ?: UiState())
     val uiState: StateFlow<UiState> =_uiState.asStateFlow()
 
     private val _tokensRemaining = MutableStateFlow(-1)
@@ -29,18 +30,25 @@ class ChatViewModel(
 
     fun resetInferenceModel(newModel: InferenceModel) {
         inferenceModel = newModel
-        _uiState.value = inferenceModel.uiState
+        _uiState.value = newModel.uiState
     }
 
     fun sendMessage(userMessage: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val model = inferenceModel ?: return@launch
             _uiState.value.addMessage(userMessage, USER_PREFIX)
             _uiState.value.createLoadingMessage()
             setInputEnabled(false)
+            val startTimeMs = System.currentTimeMillis()
+            var tokenCount = 0
             try {
-                val asyncInference =  inferenceModel.generateResponseAsync(userMessage, { partialResult, done ->
+                val asyncInference =  model.generateResponseAsync(userMessage, { partialResult, done ->
+                    tokenCount++
                     _uiState.value.appendMessage(partialResult)
                     if (done) {
+                        val elapsedSeconds = (System.currentTimeMillis() - startTimeMs) / 1000.0
+                        val tokensPerSecond = if (elapsedSeconds > 0) tokenCount / elapsedSeconds else 0.0
+                        _uiState.value.setGenerationStats(tokensPerSecond)
                         setInputEnabled(true)  // Re-enable text input
                     } else {
                         // Reduce current token count (estimate only). sizeInTokens() will be used
@@ -66,15 +74,27 @@ class ChatViewModel(
     }
 
     fun recomputeSizeInTokens(message: String) {
-        val remainingTokens = inferenceModel.estimateTokensRemaining(message)
+        val remainingTokens = inferenceModel?.estimateTokensRemaining(message) ?: return
         _tokensRemaining.value = remainingTokens
     }
 
     companion object {
         fun getFactory(context: Context) = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                val inferenceModel = InferenceModel.getInstance(context)
-                return ChatViewModel(inferenceModel) as T
+                return try {
+                    val inferenceModel = InferenceModel.getInstance(context)
+                    ChatViewModel(inferenceModel) as T
+                } catch (e: OutOfMemoryError) {
+                    ChatViewModel(
+                        inferenceModel = null,
+                        initError = "Not enough memory to load this model on this device. Try closing other apps, restarting your phone, or using a smaller model."
+                    ) as T
+                } catch (e: Throwable) {
+                    ChatViewModel(
+                        inferenceModel = null,
+                        initError = e.localizedMessage ?: "Failed to load the model. Please try again."
+                    ) as T
+                }
             }
         }
     }

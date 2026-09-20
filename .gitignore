@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# On-device LLM model weights (multi-hundred-MB, download via README instructions)
+*.task
+*.bin
