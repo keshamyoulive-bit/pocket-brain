@@ -80,8 +80,9 @@ class ChatViewModel(private val appContext: Context) : ViewModel() {
                         setInputEnabled(true)  // Re-enable text input
                     } else {
                         // Reduce current token count (estimate only). sizeInTokens() will be used
-                        // when computation is done
-                        _tokensRemaining.update { max(0, it - 1) }
+                        // when computation is done. -1 means "not measured yet", so leave it
+                        // alone rather than decrementing it into a false "context full".
+                        _tokensRemaining.update { if (it < 0) it else max(0, it - 1) }
                     }
                 }
                 // Once the inference is done, recompute the remaining size in tokens

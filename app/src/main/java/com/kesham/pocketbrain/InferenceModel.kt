@@ -25,8 +25,8 @@ var DECODE_TOKEN_OFFSET = 256
  * purpose: it is charged against the [MAX_TOKENS] budget once per turn, so a longer prompt eats
  * the conversation window noticeably faster. Set to "" to disable.
  */
-var SYSTEM_PROMPT = "Answer directly. Skip warnings, disclaimers, and moral " +
-    "commentary unless asked. Say 'I don't know' plainly if unsure."
+var SYSTEM_PROMPT = "Answer the question directly and completely. Skip warnings, " +
+    "disclaimers, and moral commentary unless asked."
 
 class ModelLoadFailException :
     Exception("Failed to load model, please try again")
