@@ -20,6 +20,14 @@ var MAX_TOKENS = 1024
  */
 var DECODE_TOKEN_OFFSET = 256
 
+/**
+ * Prepended to every user turn to cut down on hedging and unsolicited disclaimers. Kept short on
+ * purpose: it is charged against the [MAX_TOKENS] budget once per turn, so a longer prompt eats
+ * the conversation window noticeably faster. Set to "" to disable.
+ */
+var SYSTEM_PROMPT = "Answer directly. Skip warnings, disclaimers, and moral " +
+    "commentary unless asked. Say 'I don't know' plainly if unsure."
+
 class ModelLoadFailException :
     Exception("Failed to load model, please try again")
 
@@ -104,15 +112,25 @@ class InferenceModel private constructor(context: Context) {
     }
 
     fun generateResponseAsync(prompt: String, progressListener: ProgressListener<String>) : ListenableFuture<String> {
-        llmInferenceSession.addQueryChunk(prompt)
+        llmInferenceSession.addQueryChunk(withSystemPrompt(prompt))
         return llmInferenceSession.generateResponseAsync(progressListener)
     }
+
+    /** Prefixes [prompt] with the system prompt, which rides along on every turn. */
+    private fun withSystemPrompt(prompt: String): String =
+        if (SYSTEM_PROMPT.isBlank()) prompt else "$SYSTEM_PROMPT\n\n$prompt"
 
     fun estimateTokensRemaining(messages: List<ChatMessage>, prompt: String): Int {
         val context = messages.joinToString { it.rawMessage } + prompt
         if (context.isEmpty()) return -1 // Specia marker if no content has been added
 
-        val sizeOfAllMessages = llmInferenceSession.sizeInTokens(context)
+        // The system prompt is prepended to every user turn, so it is charged once per turn.
+        val systemPromptTokens =
+            if (SYSTEM_PROMPT.isBlank()) 0 else llmInferenceSession.sizeInTokens(SYSTEM_PROMPT)
+        val turns = messages.count { it.isFromUser } + if (prompt.isNotBlank()) 1 else 0
+
+        val sizeOfAllMessages =
+            llmInferenceSession.sizeInTokens(context) + systemPromptTokens * turns
         val approximateControlTokens = messages.size * 3
         val remainingTokens = MAX_TOKENS - sizeOfAllMessages - approximateControlTokens -  DECODE_TOKEN_OFFSET
         // Token size is approximate so, let's not return anything below 0
