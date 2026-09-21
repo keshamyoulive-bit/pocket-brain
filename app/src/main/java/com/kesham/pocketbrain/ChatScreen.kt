@@ -1,6 +1,5 @@
 package com.kesham.pocketbrain
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,7 +32,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,48 +64,52 @@ internal fun ChatRoute(
     val context = LocalContext.current.applicationContext
     val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.getFactory(context))
 
-    val initError = chatViewModel.initError
-    if (initError != null) {
-        ChatErrorScreen(message = initError, onGoBack = onClose)
+    val modelStatus by chatViewModel.modelStatus.collectAsStateWithLifecycle()
+    val textInputEnabled by chatViewModel.isTextInputEnabled.collectAsStateWithLifecycle()
+    val modelLabel by chatViewModel.modelLabel.collectAsStateWithLifecycle()
+
+    val status = modelStatus
+    if (status is ModelStatus.Failed) {
+        ChatErrorScreen(
+            message = status.message,
+            onRetry = { chatViewModel.retryLoad() }
+        )
         return
     }
 
-    // Reset InferenceModel when entering ChatScreen
-    LaunchedEffect(Unit) {
-        val inferenceModel = InferenceModel.getInstance(context)
-        chatViewModel.resetInferenceModel(inferenceModel)
-    }
-
-    val uiState by chatViewModel.uiState.collectAsStateWithLifecycle()
-    val textInputEnabled by chatViewModel.isTextInputEnabled.collectAsStateWithLifecycle()
     ChatScreen(
-        context,
-        uiState,
-        textInputEnabled,
+        uiState = chatViewModel.uiState,
+        modelLabel = modelLabel,
+        loadingModel = (status as? ModelStatus.Loading)?.model,
+        textInputEnabled = textInputEnabled,
         remainingTokens = chatViewModel.tokensRemaining,
-        resetTokenCount = {
-            chatViewModel.recomputeSizeInTokens("")
-        },
         onSendMessage = { message ->
             chatViewModel.sendMessage(message)
         },
         onChangedMessage = { message ->
             chatViewModel.recomputeSizeInTokens(message)
         },
-        onClose = onClose
+        onClearChat = {
+            chatViewModel.clearChat()
+        },
+        onCloseChat = {
+            chatViewModel.closeEngine()
+            onClose()
+        }
     )
 }
 
 @Composable
 fun ChatScreen(
-    context: Context,
     uiState: UiState,
+    modelLabel: String,
+    loadingModel: Model?,
     textInputEnabled: Boolean,
     remainingTokens: StateFlow<Int>,
-    resetTokenCount: () -> Unit,
     onSendMessage: (String) -> Unit,
     onChangedMessage: (String) -> Unit,
-    onClose: () -> Unit
+    onClearChat: () -> Unit,
+    onCloseChat: () -> Unit
 ) {
     var userMessage by rememberSaveable { mutableStateOf("") }
     val tokens by remainingTokens.collectAsState(initial = -1)
@@ -118,18 +121,10 @@ fun ChatScreen(
         verticalArrangement = Arrangement.Bottom
     ) {
         ChatTopBar(
-            textInputEnabled = textInputEnabled,
-            onClearChat = {
-                InferenceModel.getInstance(context).resetSession()
-                uiState.clearMessages()
-                resetTokenCount()
-            },
-            onCloseChat = {
-                InferenceModel.getInstance(context).close()
-                uiState.clearMessages()
-                resetTokenCount()
-                onClose()
-            }
+            modelLabel = modelLabel,
+            controlsEnabled = textInputEnabled,
+            onClearChat = onClearChat,
+            onCloseChat = onCloseChat
         )
 
         if (tokens >= 0) {
@@ -174,6 +169,13 @@ fun ChatScreen(
             }
         }
 
+        if (loadingModel != null) {
+            ModelLoadingBanner(
+                model = loadingModel,
+                isFirstLoad = uiState.messages.isEmpty()
+            )
+        }
+
         ChatInputBar(
             userMessage = userMessage,
             textInputEnabled = textInputEnabled,
@@ -207,8 +209,48 @@ fun ChatScreen(
 }
 
 @Composable
+private fun ModelLoadingBanner(
+    model: Model,
+    isFirstLoad: Boolean
+) {
+    val label = if (isFirstLoad) {
+        "Loading ${model.displayName}…"
+    } else {
+        "Switching to ${model.displayName}…"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        ClayBox(
+            shape = ClayPillShape,
+            color = ClayPrimary,
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = ClayTextPrimary
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ClayTextPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ChatTopBar(
-    textInputEnabled: Boolean,
+    modelLabel: String,
+    controlsEnabled: Boolean,
     onClearChat: () -> Unit,
     onCloseChat: () -> Unit
 ) {
@@ -240,7 +282,7 @@ private fun ChatTopBar(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "${InferenceModel.model} · ${InferenceModel.activeBackend?.name ?: "N/A"}",
+                    text = modelLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = ClayTextPrimary,
                     maxLines = 1,
@@ -250,7 +292,7 @@ private fun ChatTopBar(
 
             IconButton(
                 onClick = onClearChat,
-                enabled = textInputEnabled,
+                enabled = controlsEnabled,
                 modifier = Modifier.size(40.dp),
                 colors = IconButtonDefaults.iconButtonColors(
                     contentColor = ClayTextSecondary,
@@ -262,7 +304,7 @@ private fun ChatTopBar(
 
             IconButton(
                 onClick = onCloseChat,
-                enabled = textInputEnabled,
+                enabled = controlsEnabled,
                 modifier = Modifier.size(40.dp),
                 colors = IconButtonDefaults.iconButtonColors(
                     contentColor = ClayTextSecondary,
@@ -417,7 +459,7 @@ fun ChatItem(
 @Composable
 private fun ChatErrorScreen(
     message: String,
-    onGoBack: () -> Unit
+    onRetry: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -443,13 +485,13 @@ private fun ChatErrorScreen(
         )
         Spacer(modifier = Modifier.height(24.dp))
         ClayBox(
-            modifier = Modifier.clickable(onClick = onGoBack),
+            modifier = Modifier.clickable(onClick = onRetry),
             shape = ClayPillShape,
             color = ClayPrimary,
             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp)
         ) {
             Text(
-                text = "Go Back",
+                text = "Try Again",
                 style = MaterialTheme.typography.labelLarge,
                 color = ClayTextPrimary
             )

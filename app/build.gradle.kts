@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -16,25 +14,10 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        manifestPlaceholders["appAuthRedirectScheme"] = ""
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        // Define the BuildConfig field
-        val properties = Properties()
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localPropertiesFile.inputStream().use { properties.load(it) }
-        }
-        val hfAccessToken = properties.getProperty("HF_ACCESS_TOKEN", "")
-        buildConfigField("String", "HF_ACCESS_TOKEN", "\"$hfAccessToken\"")
-    }
-
-    buildFeatures {
-        buildConfig = true
     }
 
     buildTypes {
@@ -71,8 +54,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
@@ -83,10 +66,6 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
 
     implementation ("com.google.mediapipe:tasks-genai:0.10.29")
-
-    implementation("com.squareup.okhttp3:okhttp:4.9.3")
-    implementation("net.openid:appauth:0.11.1") // Add AppAuth for OAuth support
-    implementation("androidx.security:security-crypto:1.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -1,7 +1,6 @@
 package com.kesham.pocketbrain
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
@@ -32,10 +31,8 @@ class InferenceModel private constructor(context: Context) {
     private lateinit var llmInferenceSession: LlmInferenceSession
     private val TAG = InferenceModel::class.qualifiedName
 
-    val uiState = UiState(model.thinking)
-
     init {
-        if (!modelExists(context)) {
+        if (!modelExists()) {
             throw IllegalArgumentException("Model not found at path: ${model.path}")
         }
 
@@ -44,8 +41,12 @@ class InferenceModel private constructor(context: Context) {
     }
 
     fun close() {
-        llmInferenceSession.close()
-        llmInference.close()
+        if (::llmInferenceSession.isInitialized) {
+            llmInferenceSession.close()
+        }
+        if (::llmInference.isInitialized) {
+            llmInference.close()
+        }
     }
 
     fun resetSession() {
@@ -54,16 +55,16 @@ class InferenceModel private constructor(context: Context) {
     }
 
     private fun createEngine(context: Context) {
+        val preferred = model.preferredBackend
         try {
-            llmInference = buildLlmInference(context)
-            activeBackend = model.preferredBackend
+            llmInference = buildLlmInference(context, preferred)
+            activeBackend = preferred
         } catch (e: Exception) {
-            if (model.preferredBackend == Backend.GPU) {
-                Log.w(TAG, "GPU backend init failed, falling back to CPU: ${e.message}", e)
-                model = Model.GEMMA3_1B_IT_CPU
+            if (preferred == Backend.GPU) {
+                Log.w(TAG, "GPU backend init failed for ${model.name}, falling back to CPU: ${e.message}", e)
                 try {
-                    llmInference = buildLlmInference(context)
-                    activeBackend = model.preferredBackend
+                    llmInference = buildLlmInference(context, Backend.CPU)
+                    activeBackend = Backend.CPU
                 } catch (e2: Exception) {
                     Log.e(TAG, "CPU fallback also failed: ${e2.message}", e2)
                     throw ModelLoadFailException()
@@ -76,11 +77,11 @@ class InferenceModel private constructor(context: Context) {
         Log.i(TAG, "LlmInference initialized with backend=$activeBackend model=${model.name}")
     }
 
-    private fun buildLlmInference(context: Context): LlmInference {
+    private fun buildLlmInference(context: Context, backend: Backend?): LlmInference {
         val inferenceOptions = LlmInference.LlmInferenceOptions.builder()
-            .setModelPath(modelPath(context))
+            .setModelPath(modelPath())
             .setMaxTokens(MAX_TOKENS)
-            .apply { model.preferredBackend?.let { setPreferredBackend(it) } }
+            .apply { backend?.let { setPreferredBackend(it) } }
             .build()
 
         return LlmInference.createFromOptions(context, inferenceOptions)
@@ -107,56 +108,44 @@ class InferenceModel private constructor(context: Context) {
         return llmInferenceSession.generateResponseAsync(progressListener)
     }
 
-    fun estimateTokensRemaining(prompt: String): Int {
-        val context = uiState.messages.joinToString { it.rawMessage } + prompt
+    fun estimateTokensRemaining(messages: List<ChatMessage>, prompt: String): Int {
+        val context = messages.joinToString { it.rawMessage } + prompt
         if (context.isEmpty()) return -1 // Specia marker if no content has been added
 
         val sizeOfAllMessages = llmInferenceSession.sizeInTokens(context)
-        val approximateControlTokens = uiState.messages.size * 3
+        val approximateControlTokens = messages.size * 3
         val remainingTokens = MAX_TOKENS - sizeOfAllMessages - approximateControlTokens -  DECODE_TOKEN_OFFSET
         // Token size is approximate so, let's not return anything below 0
         return max(0, remainingTokens)
     }
 
     companion object {
-        var model: Model = Model.GEMMA_3_1B_IT_GPU
+        var model: Model = DEFAULT_MODEL
         var activeBackend: Backend? = null
         private var instance: InferenceModel? = null
 
-        fun getInstance(context: Context): InferenceModel {
-            return if (instance != null) {
-                instance!!
-            } else {
-                InferenceModel(context).also { instance = it }
-            }
-        }
-
-        fun resetInstance(context: Context): InferenceModel {
+        /** Unloads the current engine and loads [newModel] in its place. */
+        fun switchTo(context: Context, newModel: Model): InferenceModel {
+            closeInstance()
+            model = newModel
             return InferenceModel(context).also { instance = it }
         }
 
-        fun modelPathFromUrl(context: Context): String {
-            if (model.url.isNotEmpty()) {
-                val urlFileName = Uri.parse(model.url).lastPathSegment
-                if (!urlFileName.isNullOrEmpty()) {
-                    return File(context.filesDir, urlFileName).absolutePath
-                }
+        fun currentOrNull(): InferenceModel? = instance
+
+        fun closeInstance() {
+            try {
+                instance?.close()
+            } catch (e: Exception) {
+                Log.w(InferenceModel::class.qualifiedName, "Error closing engine: ${e.message}", e)
             }
-
-            return ""
+            instance = null
+            activeBackend = null
         }
 
-        fun modelPath(context: Context): String {
-            val modelFile = File(model.path)
-            if (modelFile.exists()) {
-                return model.path
-            }
+        /** Models are pushed to the device with push_model.sh; nothing is downloaded in-app. */
+        fun modelPath(): String = model.path
 
-            return modelPathFromUrl(context)
-        }
-
-        fun modelExists(context: Context): Boolean {
-            return File(modelPath(context)).exists()
-        }
+        fun modelExists(): Boolean = File(model.path).exists()
     }
 }

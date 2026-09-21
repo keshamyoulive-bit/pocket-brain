@@ -50,7 +50,7 @@ enum class Model(
         topP = 0.9f
     ),
     DEEPSEEK_R1_DISTILL_QWEN_1_5_B(
-        path = "/data/local/tmp/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv1280.task",
+        path = "/data/local/tmp/llm/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv1280.task",
         url = "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "",
         needsAuth = false,
@@ -83,7 +83,7 @@ enum class Model(
         topP = 0.9f,
     ),
     PHI_4_MINI_INSTRUCT(
-        path = "/data/local/tmp/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv1280.task",
+        path = "/data/local/tmp/llm/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv1280.task",
         url = "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "",
         needsAuth = false,
@@ -147,5 +147,17 @@ enum class Model(
         temperature = 0.95f,
         topK = 40,
         topP = 1.0f
-    ),
+    );
+
+    /** Short name for the chat header, e.g. "DeepSeek-R1". */
+    val displayName: String
+        get() = when (this) {
+            GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU -> "Gemma 3 1B"
+            DEEPSEEK_R1_DISTILL_QWEN_1_5_B -> "DeepSeek-R1"
+            PHI_4_MINI_INSTRUCT -> "Phi-4 Mini"
+            else -> name
+        }
 }
+
+/** Model used for general chat when a prompt matches no specialised route. */
+val DEFAULT_MODEL = Model.GEMMA_3_1B_IT_GPU

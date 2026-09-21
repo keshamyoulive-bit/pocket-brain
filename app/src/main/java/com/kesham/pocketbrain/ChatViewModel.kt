@@ -14,48 +14,76 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.max
 
-class ChatViewModel(
-    private var inferenceModel: InferenceModel?,
-    val initError: String? = null
-) : ViewModel() {
+private const val OUT_OF_MEMORY_MESSAGE =
+    "Not enough memory to load this model on this device. Try closing other apps, " +
+        "restarting your phone, or using a smaller model."
 
-    private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(inferenceModel?.uiState ?: UiState())
-    val uiState: StateFlow<UiState> =_uiState.asStateFlow()
+/** Load state of the engine backing the chat. */
+sealed interface ModelStatus {
+    /** The engine for [model] is being loaded — either the first load or a route switch. */
+    data class Loading(val model: Model) : ModelStatus
+    data object Ready : ModelStatus
+    data class Failed(val message: String) : ModelStatus
+}
+
+class ChatViewModel(private val appContext: Context) : ViewModel() {
+
+    val uiState = UiState()
+
+    private val _modelStatus = MutableStateFlow<ModelStatus>(ModelStatus.Loading(DEFAULT_MODEL))
+    val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
+
+    private val _modelLabel = MutableStateFlow(DEFAULT_MODEL.displayName)
+    val modelLabel: StateFlow<String> = _modelLabel.asStateFlow()
 
     private val _tokensRemaining = MutableStateFlow(-1)
     val tokensRemaining: StateFlow<Int> = _tokensRemaining.asStateFlow()
 
-    private val _textInputEnabled: MutableStateFlow<Boolean> = MutableStateFlow(true)
+    private val _textInputEnabled: MutableStateFlow<Boolean> = MutableStateFlow(false)
     val isTextInputEnabled: StateFlow<Boolean> = _textInputEnabled.asStateFlow()
 
-    fun resetInferenceModel(newModel: InferenceModel) {
-        inferenceModel = newModel
-        _uiState.value = newModel.uiState
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            loadModel(DEFAULT_MODEL)
+        }
     }
 
     fun sendMessage(userMessage: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val model = inferenceModel ?: return@launch
-            _uiState.value.addMessage(userMessage, USER_PREFIX)
-            _uiState.value.createLoadingMessage()
+            uiState.addMessage(userMessage, USER_PREFIX)
+
+            // A missing specialist model shouldn't dead-end the chat: fall back to the default.
+            val routed = ModelRouter.route(userMessage)
+            var engine = loadModel(routed, reportFailure = routed == DEFAULT_MODEL)
+            if (engine == null && routed != DEFAULT_MODEL) {
+                uiState.addMessage(
+                    "${routed.displayName} isn't available on this device — " +
+                        "answering with ${DEFAULT_MODEL.displayName} instead.",
+                    MODEL_PREFIX
+                )
+                engine = loadModel(DEFAULT_MODEL)
+            }
+            val model = engine ?: return@launch
+
+            uiState.createLoadingMessage(InferenceModel.model.thinking)
             setInputEnabled(false)
             val startTimeMs = System.currentTimeMillis()
             var tokenCount = 0
             try {
-                val asyncInference =  model.generateResponseAsync(userMessage, { partialResult, done ->
+                val asyncInference = model.generateResponseAsync(userMessage) { partialResult, done ->
                     tokenCount++
-                    _uiState.value.appendMessage(partialResult)
+                    uiState.appendMessage(partialResult)
                     if (done) {
                         val elapsedSeconds = (System.currentTimeMillis() - startTimeMs) / 1000.0
                         val tokensPerSecond = if (elapsedSeconds > 0) tokenCount / elapsedSeconds else 0.0
-                        _uiState.value.setGenerationStats(tokensPerSecond)
+                        uiState.setGenerationStats(tokensPerSecond)
                         setInputEnabled(true)  // Re-enable text input
                     } else {
                         // Reduce current token count (estimate only). sizeInTokens() will be used
                         // when computation is done
                         _tokensRemaining.update { max(0, it - 1) }
                     }
-                })
+                }
                 // Once the inference is done, recompute the remaining size in tokens
                 asyncInference.addListener({
                     viewModelScope.launch(Dispatchers.IO) {
@@ -63,10 +91,65 @@ class ChatViewModel(
                     }
                 }, Dispatchers.Main.asExecutor())
             } catch (e: Exception) {
-                _uiState.value.addMessage(e.localizedMessage ?: "Unknown Error", MODEL_PREFIX)
+                uiState.addMessage(e.localizedMessage ?: "Unknown Error", MODEL_PREFIX)
                 setInputEnabled(true)
             }
         }
+    }
+
+    /**
+     * Returns the engine for [target], loading it first if a different model is currently
+     * resident. Returns null when loading failed; [reportFailure] controls whether that failure
+     * becomes a terminal error screen or is left for the caller to recover from.
+     */
+    private fun loadModel(target: Model, reportFailure: Boolean = true): InferenceModel? {
+        val current = InferenceModel.currentOrNull()
+        if (current != null && InferenceModel.model == target) {
+            return current
+        }
+
+        _modelStatus.value = ModelStatus.Loading(target)
+        setInputEnabled(false)
+        return try {
+            InferenceModel.switchTo(appContext, target).also {
+                _modelLabel.value = "${target.displayName} · ${InferenceModel.activeBackend?.name ?: "N/A"}"
+                _modelStatus.value = ModelStatus.Ready
+                _tokensRemaining.value = -1
+                setInputEnabled(true)
+            }
+        } catch (e: Throwable) {
+            val message = if (e is OutOfMemoryError) {
+                OUT_OF_MEMORY_MESSAGE
+            } else {
+                e.localizedMessage ?: "Failed to load ${target.displayName}. Please try again."
+            }
+            if (reportFailure) {
+                _modelStatus.value = ModelStatus.Failed(message)
+            } else {
+                _modelStatus.value = ModelStatus.Ready
+                setInputEnabled(true)
+            }
+            null
+        }
+    }
+
+    /** Re-attempts the default model load after a failure (e.g. once the file has been pushed). */
+    fun retryLoad() {
+        viewModelScope.launch(Dispatchers.IO) {
+            loadModel(DEFAULT_MODEL)
+        }
+    }
+
+    fun clearChat() {
+        InferenceModel.currentOrNull()?.resetSession()
+        uiState.clearMessages()
+        _tokensRemaining.value = -1
+    }
+
+    fun closeEngine() {
+        InferenceModel.closeInstance()
+        uiState.clearMessages()
+        _tokensRemaining.value = -1
     }
 
     private fun setInputEnabled(isEnabled: Boolean) {
@@ -74,27 +157,15 @@ class ChatViewModel(
     }
 
     fun recomputeSizeInTokens(message: String) {
-        val remainingTokens = inferenceModel?.estimateTokensRemaining(message) ?: return
-        _tokensRemaining.value = remainingTokens
+        val model = InferenceModel.currentOrNull() ?: return
+        _tokensRemaining.value = model.estimateTokensRemaining(uiState.messages, message)
     }
 
     companion object {
         fun getFactory(context: Context) = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                return try {
-                    val inferenceModel = InferenceModel.getInstance(context)
-                    ChatViewModel(inferenceModel) as T
-                } catch (e: OutOfMemoryError) {
-                    ChatViewModel(
-                        inferenceModel = null,
-                        initError = "Not enough memory to load this model on this device. Try closing other apps, restarting your phone, or using a smaller model."
-                    ) as T
-                } catch (e: Throwable) {
-                    ChatViewModel(
-                        inferenceModel = null,
-                        initError = e.localizedMessage ?: "Failed to load the model. Please try again."
-                    ) as T
-                }
+                return ChatViewModel(context) as T
             }
         }
     }

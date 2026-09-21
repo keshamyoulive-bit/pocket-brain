@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
-# Pushes a MediaPipe .task model file to the device for on-device LLM inference.
-# Usage: ./push_model.sh [path/to/model.task]
+# Pushes MediaPipe .task model files to the device for on-device LLM inference.
+# Usage: ./push_model.sh <model.task> [another.task ...]
 set -euo pipefail
 
 # Prevent Git Bash/MSYS on Windows from rewriting the device-side POSIX path
 # (e.g. /data/local/tmp/llm/) into a Windows path before it reaches adb.
 export MSYS_NO_PATHCONV=1
 
-MODEL_FILE="${1:-gemma3-1b-it-int4.task}"
 DEVICE_DIR="/data/local/tmp/llm/"
 
-if [ ! -f "$MODEL_FILE" ]; then
-    echo "Model file not found: $MODEL_FILE" >&2
+if [ "$#" -eq 0 ]; then
+    echo "Usage: $0 <model.task> [another.task ...]" >&2
     exit 1
 fi
 
+# Validate everything up front so a bad argument doesn't leave a partial push.
+for model_file in "$@"; do
+    if [ ! -f "$model_file" ]; then
+        echo "Model file not found: $model_file" >&2
+        exit 1
+    fi
+done
+
 adb shell mkdir -p "$DEVICE_DIR"
-adb push "$MODEL_FILE" "$DEVICE_DIR"
+
+for model_file in "$@"; do
+    echo "Pushing $(basename "$model_file") ..."
+    adb push "$model_file" "$DEVICE_DIR"
+done
+
+echo "Done. Models on device:"
+adb shell ls -la "$DEVICE_DIR"
