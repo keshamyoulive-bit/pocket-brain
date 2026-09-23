@@ -8,7 +8,6 @@ import com.google.mediapipe.tasks.genai.llminference.LlmInference.Backend
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession.LlmInferenceSessionOptions
 import com.google.mediapipe.tasks.genai.llminference.ProgressListener
-import java.io.File
 import kotlin.math.max
 
 /** The maximum number of tokens the model can process. */
@@ -40,12 +39,20 @@ class InferenceModel private constructor(context: Context) {
     private val TAG = InferenceModel::class.qualifiedName
 
     init {
-        if (!modelExists()) {
+        if (!modelExists(context)) {
             throw IllegalArgumentException("Model not found at path: ${model.path}")
         }
 
+        val loadStartMs = System.currentTimeMillis()
         createEngine(context)
+        val engineMs = System.currentTimeMillis() - loadStartMs
         createSession()
+        val totalMs = System.currentTimeMillis() - loadStartMs
+        Log.i(
+            TAG,
+            "PERF load model=${model.name} backend=$activeBackend " +
+                "engineMs=$engineMs sessionMs=${totalMs - engineMs} loadMs=$totalMs"
+        )
     }
 
     fun close() {
@@ -82,12 +89,11 @@ class InferenceModel private constructor(context: Context) {
                 throw ModelLoadFailException()
             }
         }
-        Log.i(TAG, "LlmInference initialized with backend=$activeBackend model=${model.name}")
     }
 
     private fun buildLlmInference(context: Context, backend: Backend?): LlmInference {
         val inferenceOptions = LlmInference.LlmInferenceOptions.builder()
-            .setModelPath(modelPath())
+            .setModelPath(modelPath(context))
             .setMaxTokens(MAX_TOKENS)
             .apply { backend?.let { setPreferredBackend(it) } }
             .build()
@@ -161,9 +167,10 @@ class InferenceModel private constructor(context: Context) {
             activeBackend = null
         }
 
-        /** Models are pushed to the device with push_model.sh; nothing is downloaded in-app. */
-        fun modelPath(): String = model.path
+        /** Resolved via [ModelStorage]: a downloaded copy first, then a push_model.sh file. */
+        fun modelPath(context: Context): String =
+            ModelStorage.resolve(context, model)?.absolutePath ?: model.path
 
-        fun modelExists(): Boolean = File(model.path).exists()
+        fun modelExists(context: Context): Boolean = ModelStorage.isAvailable(context, model)
     }
 }

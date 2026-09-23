@@ -16,6 +16,8 @@ enum class Model(
     val topK: Int,
     val topP: Float,
 ) {
+    // temperature/topP kept below Gemma's 1.0/0.95 defaults: at those values the 1B model
+    // degenerates into repetition loops on long answers and burns the whole context window.
     GEMMA3_1B_IT_CPU(
         path = "/data/local/tmp/llm/gemma3-1b-it-int4.task",
         url = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q8_ekv2048.task",
@@ -23,9 +25,9 @@ enum class Model(
         needsAuth = true,
         preferredBackend = Backend.CPU,
         thinking = false,
-        temperature = 1.0f,
-        topK = 64,
-        topP = 0.95f
+        temperature = 0.8f,
+        topK = 40,
+        topP = 0.9f
     ),
     GEMMA_3_1B_IT_GPU(
         path = "/data/local/tmp/llm/gemma3-1b-it-int4.task",
@@ -34,9 +36,9 @@ enum class Model(
         needsAuth = true,
         preferredBackend = Backend.GPU,
         thinking = false,
-        temperature = 1.0f,
-        topK = 64,
-        topP = 0.95f
+        temperature = 0.8f,
+        topK = 40,
+        topP = 0.9f
     ),
     GEMMA_2_2B_IT_CPU(
         path = "/data/local/tmp/Gemma2-2B-IT_multi-prefill-seq_q8_ekv1280.task",
@@ -54,7 +56,7 @@ enum class Model(
         url = "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "",
         needsAuth = false,
-        preferredBackend = Backend.CPU,
+        preferredBackend = Backend.GPU,
         thinking = true,
         temperature = 0.6f,
         topK = 40,
@@ -87,7 +89,7 @@ enum class Model(
         url = "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv1280.task",
         licenseUrl = "",
         needsAuth = false,
-        preferredBackend = Backend.CPU,
+        preferredBackend = Backend.GPU,
         thinking = false,
         temperature = 0.6f,
         topK = 40,
@@ -149,12 +151,19 @@ enum class Model(
         topP = 1.0f
     );
 
+    /** Bare file name, used to locate the model in either storage location. */
+    val fileName: String
+        get() = path.substringAfterLast('/')
+
     /** Short name for the chat header, e.g. "DeepSeek-R1". */
     val displayName: String
         get() = when (this) {
             GEMMA3_1B_IT_CPU, GEMMA_3_1B_IT_GPU -> "Gemma 3 1B"
             DEEPSEEK_R1_DISTILL_QWEN_1_5_B -> "DeepSeek-R1"
             PHI_4_MINI_INSTRUCT -> "Phi-4 Mini"
+            QWEN2_1_5B_INSTRUCT -> "Qwen2.5 1.5B"
+            QWEN2_0_5B_INSTRUCT -> "Qwen2.5 0.5B"
+            QWEN2_5_3B_INSTRUCT -> "Qwen2.5 3B"
             else -> name
         }
 }

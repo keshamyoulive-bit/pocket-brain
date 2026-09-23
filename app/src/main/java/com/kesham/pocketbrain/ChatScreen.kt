@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,7 +60,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun ChatRoute(
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenModels: () -> Unit
 ) {
     val context = LocalContext.current.applicationContext
     val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.getFactory(context))
@@ -72,7 +74,8 @@ internal fun ChatRoute(
     if (status is ModelStatus.Failed) {
         ChatErrorScreen(
             message = status.message,
-            onRetry = { chatViewModel.retryLoad() }
+            onRetry = { chatViewModel.retryLoad() },
+            onOpenModels = onOpenModels
         )
         return
     }
@@ -95,7 +98,8 @@ internal fun ChatRoute(
         onCloseChat = {
             chatViewModel.closeEngine()
             onClose()
-        }
+        },
+        onOpenModels = onOpenModels
     )
 }
 
@@ -109,7 +113,8 @@ fun ChatScreen(
     onSendMessage: (String) -> Unit,
     onChangedMessage: (String) -> Unit,
     onClearChat: () -> Unit,
-    onCloseChat: () -> Unit
+    onCloseChat: () -> Unit,
+    onOpenModels: () -> Unit
 ) {
     var userMessage by rememberSaveable { mutableStateOf("") }
     val tokens by remainingTokens.collectAsState(initial = -1)
@@ -124,7 +129,8 @@ fun ChatScreen(
             modelLabel = modelLabel,
             controlsEnabled = textInputEnabled,
             onClearChat = onClearChat,
-            onCloseChat = onCloseChat
+            onCloseChat = onCloseChat,
+            onOpenModels = onOpenModels
         )
 
         if (tokens >= 0) {
@@ -252,7 +258,8 @@ private fun ChatTopBar(
     modelLabel: String,
     controlsEnabled: Boolean,
     onClearChat: () -> Unit,
-    onCloseChat: () -> Unit
+    onCloseChat: () -> Unit,
+    onOpenModels: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -288,6 +295,14 @@ private fun ChatTopBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            IconButton(
+                onClick = onOpenModels,
+                modifier = Modifier.size(40.dp),
+                colors = IconButtonDefaults.iconButtonColors(contentColor = ClayTextSecondary)
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = "Models")
             }
 
             IconButton(
@@ -459,7 +474,8 @@ fun ChatItem(
 @Composable
 private fun ChatErrorScreen(
     message: String,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onOpenModels: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -484,17 +500,30 @@ private fun ChatErrorScreen(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(24.dp))
-        ClayBox(
-            modifier = Modifier.clickable(onClick = onRetry),
-            shape = ClayPillShape,
-            color = ClayPrimary,
-            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp)
-        ) {
-            Text(
-                text = "Try Again",
-                style = MaterialTheme.typography.labelLarge,
-                color = ClayTextPrimary
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ClayBox(
+                modifier = Modifier.clickable(onClick = onRetry),
+                shape = ClayPillShape,
+                color = ClayPrimary,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "Try Again",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ClayTextPrimary
+                )
+            }
+            ClayBox(
+                modifier = Modifier.clickable(onClick = onOpenModels),
+                shape = ClayPillShape,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "Models",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ClayTextPrimary
+                )
+            }
         }
     }
 }

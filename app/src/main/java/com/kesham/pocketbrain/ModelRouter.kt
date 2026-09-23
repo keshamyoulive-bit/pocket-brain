@@ -42,10 +42,18 @@ object ModelRouter {
         RegexOption.IGNORE_CASE
     )
 
-    fun route(prompt: String): Model = when {
-        isCoding(prompt) -> Model.PHI_4_MINI_INSTRUCT
-        isReasoning(prompt) -> Model.DEEPSEEK_R1_DISTILL_QWEN_1_5_B
-        else -> DEFAULT_MODEL
+    /**
+     * Picks a model for [prompt], falling back to [DEFAULT_MODEL] when the specialist the text
+     * calls for is not present on the device — routing to a missing model would only stall on a
+     * load that is going to fail.
+     */
+    fun route(prompt: String, isAvailable: (Model) -> Boolean): Model {
+        val specialist = when {
+            isCoding(prompt) -> Model.PHI_4_MINI_INSTRUCT
+            isReasoning(prompt) -> Model.DEEPSEEK_R1_DISTILL_QWEN_1_5_B
+            else -> null
+        }
+        return if (specialist != null && isAvailable(specialist)) specialist else DEFAULT_MODEL
     }
 
     private fun isCoding(prompt: String): Boolean =

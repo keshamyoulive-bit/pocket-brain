@@ -1,6 +1,7 @@
 package com.kesham.pocketbrain
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -53,7 +54,7 @@ class ChatViewModel(private val appContext: Context) : ViewModel() {
             uiState.addMessage(userMessage, USER_PREFIX)
 
             // A missing specialist model shouldn't dead-end the chat: fall back to the default.
-            val routed = ModelRouter.route(userMessage)
+            val routed = ModelRouter.route(userMessage) { ModelStorage.isAvailable(appContext, it) }
             var engine = loadModel(routed, reportFailure = routed == DEFAULT_MODEL)
             if (engine == null && routed != DEFAULT_MODEL) {
                 uiState.addMessage(
@@ -69,13 +70,27 @@ class ChatViewModel(private val appContext: Context) : ViewModel() {
             setInputEnabled(false)
             val startTimeMs = System.currentTimeMillis()
             var tokenCount = 0
+            var ttftMs = -1L
             try {
                 val asyncInference = model.generateResponseAsync(userMessage) { partialResult, done ->
                     tokenCount++
+                    if (ttftMs < 0) ttftMs = System.currentTimeMillis() - startTimeMs
                     uiState.appendMessage(partialResult)
                     if (done) {
-                        val elapsedSeconds = (System.currentTimeMillis() - startTimeMs) / 1000.0
-                        val tokensPerSecond = if (elapsedSeconds > 0) tokenCount / elapsedSeconds else 0.0
+                        val totalMs = System.currentTimeMillis() - startTimeMs
+                        val tokensPerSecond = if (totalMs > 0) tokenCount * 1000.0 / totalMs else 0.0
+                        // Decode rate excludes prefill, so it is comparable across prompt lengths.
+                        val decodeMs = totalMs - ttftMs
+                        val decodeTps =
+                            if (decodeMs > 0 && tokenCount > 1) (tokenCount - 1) * 1000.0 / decodeMs else 0.0
+                        Log.i(
+                            "PocketBrainPerf",
+                            "PERF gen model=${InferenceModel.model.name} " +
+                                "backend=${InferenceModel.activeBackend} ttftMs=$ttftMs " +
+                                "totalMs=$totalMs tokens=$tokenCount " +
+                                "tps=${"%.2f".format(tokensPerSecond)} " +
+                                "decodeTps=${"%.2f".format(decodeTps)}"
+                        )
                         uiState.setGenerationStats(tokensPerSecond)
                         setInputEnabled(true)  // Re-enable text input
                     } else {
